@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="LexiCore.Sandbox/LexiCore.Sandbox.csproj" />
+  <Project Path="LexiCore.Tests/LexiCore.Tests.csproj" />
+  <Project Path="LexiCore/LexiCore.csproj" />
+</Solution>
