@@ -161,6 +161,17 @@ internal static class TemplateDiagnosticFactory
             Length: errorLength,
             Severity: DiagnosticSeverity.Warning
         );
+
+        public static Diagnostic UnexpectedEOF(
+            int tokenStart,
+            int relativePosition
+        ) => new(
+            Id: DiagnosticId.TemplateSeparatorUnexpectedEOF,
+            SourceOffset: tokenStart,
+            RelativePosition: relativePosition,
+            Length: 0,
+            Severity: DiagnosticSeverity.Error
+        );
     }
 
     public static class ValueKind
@@ -200,46 +211,57 @@ internal static class TemplateDiagnosticFactory
             Length: errorLength
         );
 
-        public static Diagnostic InvalidOpen(
+        public static Diagnostic OpenInvalid(
             int tokenStart,
             int relativePosition,
             int errorLength
         ) => new(
-            Id: DiagnosticId.TemplateValueInvalidOpen,
+            Id: DiagnosticId.TemplateValueOpenInvalid,
             SourceOffset: tokenStart,
             RelativePosition: relativePosition,
             Length: errorLength
         );
 
-        public static Diagnostic IncompleteOpen(
+        public static Diagnostic OpenIncomplete(
             int tokenStart,
             int relativePosition,
             int errorLength
         ) => new(
-            Id: DiagnosticId.TemplateValueIncompleteOpen,
+            Id: DiagnosticId.TemplateValueOpenIncomplete,
             SourceOffset: tokenStart,
             RelativePosition: relativePosition,
             Length: errorLength,
             Severity: DiagnosticSeverity.Warning
         );
+        
+        public static Diagnostic OpenUnexpectedEOF(
+            int tokenStart,
+            int relativePosition
+        ) => new(
+            Id: DiagnosticId.TemplateValueOpenUnexpectedEOF,
+            SourceOffset: tokenStart,
+            RelativePosition: relativePosition,
+            Length: 0,
+            Severity: DiagnosticSeverity.Error
+        );
 
-        public static Diagnostic InvalidClose(
+        public static Diagnostic CloseInvalid(
             int tokenStart,
             int relativePosition,
             int errorLength
         ) => new(
-            Id: DiagnosticId.TemplateValueInvalidClose,
+            Id: DiagnosticId.TemplateValueCloseInvalid,
             SourceOffset: tokenStart,
             RelativePosition: relativePosition,
             Length: errorLength
         );
 
-        public static Diagnostic IncompleteClose(
+        public static Diagnostic CloseIncomplete(
             int tokenStart,
             int relativePosition,
             int errorLength
         ) => new(
-            Id: DiagnosticId.TemplateValueIncompleteClose,
+            Id: DiagnosticId.TemplateValueCloseIncomplete,
             SourceOffset: tokenStart,
             RelativePosition: relativePosition,
             Length: errorLength,

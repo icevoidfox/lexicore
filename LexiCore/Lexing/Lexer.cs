@@ -75,7 +75,11 @@ public sealed class Lexer
             );
     }
 
-    public IReadOnlyList<ILexicalToken> Tokenize(ReadOnlyMemory<char> source) => Tokenize(source, source.Span);
+    public IReadOnlyList<ILexicalToken> Tokenize(string text)
+    {
+        var source = text.AsMemory();
+        return Tokenize(source, source.Span);
+    }
 
     /// <summary>
     /// Tokenizes a portion of the source text.
@@ -104,10 +108,6 @@ public sealed class Lexer
         LexerContext context = default
     )
     {
-        if (context.IsEmpty)
-        {
-            context = LexerContext.Default;
-        }
         List<ILexicalToken> tokens = new(context.BufferConfig.GetInitialCapacity(span.Length));
 
         // Positions (carriages):

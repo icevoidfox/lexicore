@@ -9,11 +9,12 @@ public static class Styles
 
     // Structures
     public static readonly AnsiStyle Label = new(Foreground: AnsiForegroundColor.BrightWhite);
-    public static readonly AnsiStyle ListMark = new(Foreground: AnsiForegroundColor.Cyan);
+    public static readonly AnsiStyle Mark = new(Foreground: AnsiForegroundColor.Cyan);
     public static readonly AnsiStyle Caret = Default;
 
     // Value Types
     public static readonly AnsiStyle Type = new(Foreground: AnsiForegroundColor.Yellow);
+    public static readonly AnsiStyle Literal = new(Foreground: AnsiForegroundColor.BrightMagenta);
     public static readonly AnsiStyle Range = new(Foreground: AnsiForegroundColor.BrightYellow);
     public static readonly AnsiStyle String = new(Foreground: AnsiForegroundColor.Green);
     public static readonly AnsiStyle Identifier = new(Foreground: AnsiForegroundColor.Cyan);
@@ -25,8 +26,8 @@ public static class Styles
     public static readonly AnsiStyle DiagnosticExternalInsertion = new(Background: AnsiBackgroundColor.Red);
 
     // Diagnostic Severity
-    public static readonly AnsiStyle DiagnosticHidden = Default;
-    public static readonly AnsiStyle DiagnosticInfo = new(Foreground: AnsiForegroundColor.Cyan);
-    public static readonly AnsiStyle DiagnosticWarn = new(Foreground: AnsiForegroundColor.Yellow);
-    public static readonly AnsiStyle DiagnosticError = new(Foreground: AnsiForegroundColor.Red);
+    public static readonly AnsiStyle Hidden = Default;
+    public static readonly AnsiStyle Info = new(Foreground: AnsiForegroundColor.Cyan);
+    public static readonly AnsiStyle Warn = new(Foreground: AnsiForegroundColor.Yellow);
+    public static readonly AnsiStyle Error = new(Foreground: AnsiForegroundColor.Red);
 }

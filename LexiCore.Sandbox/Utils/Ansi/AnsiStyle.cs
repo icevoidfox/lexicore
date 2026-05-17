@@ -13,7 +13,6 @@ public readonly record struct AnsiStyle
     {
         List<int> styles = [];
 
-
         if (Text == AnsiTextStyle.None && Foreground is null && Background is null)
         {
             styles.Add(0);

@@ -6,8 +6,9 @@ using LexiCore.Tokens.Syntax;
 
 namespace LexiCore.Lexing.Lexers;
 
-// IMPORTANT: This lexer is highly optimized and relies on subtle invariants.
-// Changes should be made with caution and full understanding of the state machine.
+// IMPORTANT:
+// This lexer relies on several state-machine invariants and recovery assumptions.
+// Changes should be made carefully and validated against diagnostic behavior.
 //
 // If you decide to change something, be guided by this:
 // - Parses (examples): {Identifier}, {Identifier::[Value]}, {Identifier::ValueKind[Value]}
@@ -68,7 +69,7 @@ public sealed class TemplateLexer(TemplateLexerOptions? options = null) : Delimi
         // Token Data
         int identifierStart = -1;
         int identifierLength = 0;
-        TemplateValueKind kind = TemplateValueKind.None;
+        TemplateValueKind valueKind = TemplateValueKind.None;
         int valueStart = -1;
         int valueLength = 0;
         bool isValid = true;
@@ -84,7 +85,7 @@ public sealed class TemplateLexer(TemplateLexerOptions? options = null) : Delimi
         bool isParsing = true;
 
         // Grammar expectations (used for diagnostics)
-        int expectedValueStart = -1;
+        int expectedValueSectionStart = -1;
 
         // Utils
         int invalidCharsCount = 0; // counter
@@ -200,9 +201,23 @@ public sealed class TemplateLexer(TemplateLexerOptions? options = null) : Delimi
             return true;
         }
 
+        // ValueClose intentionally excluded:
+        // it represents a terminal boundary, not a partial structural symbol.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        bool IsSymbol() => state switch
+        {
+            TemplateState.Separator => true,
+            TemplateState.ValueOpen => true,
+            TemplateState.ValueClose => false,
+            _ => false
+        };
+
         // =============
         // State Machine
         // =============
+
+        // A strict limit on token length was deliberately chosen to avoid parsing insane amounts of text.
+        // If a larger limit is needed, it can be configured via `TemplateLexerOptions` during creation.
         int maxTokenLength = Math.Min(sliced.Length, _options.MaxTokenLength);
         while (isParsing && position < maxTokenLength)
         {
@@ -215,7 +230,7 @@ public sealed class TemplateLexer(TemplateLexerOptions? options = null) : Delimi
             {
                 position++;
 
-                if (position >= sliced.Length) // EOF
+                if (position == sliced.Length) // EOF
                 {
                     isValid = false;
 
@@ -223,6 +238,8 @@ public sealed class TemplateLexer(TemplateLexerOptions? options = null) : Delimi
                     {
                         Report(TemplateDiagnosticFactory.Token.TrailingEscape(tokenStart, position - 1));
                     }
+
+                    isParsing = false;
                     break;
                 }
 
@@ -361,7 +378,6 @@ public sealed class TemplateLexer(TemplateLexerOptions? options = null) : Delimi
                     }
                     else if (!isEscaped && IsTokenStart(sliced, position))
                     {
-                        isValid = false;
                         CommitIdentifier();
 
                         isParsing = false;
@@ -407,7 +423,6 @@ public sealed class TemplateLexer(TemplateLexerOptions? options = null) : Delimi
                     }
                     else if (!isEscaped && IsTokenStart(sliced, position))
                     {
-                        isValid = false;
                         FlushInvalidChars(TemplateDiagnosticFactory.Identifier.UnexpectedContent);
 
                         isParsing = false;
@@ -421,53 +436,79 @@ public sealed class TemplateLexer(TemplateLexerOptions? options = null) : Delimi
                 // Separator
                 case TemplateState.Separator: // Symbol
                 {
-                    int increment = TemplateSyntax.ContentSeparator.Length;
-
-                    if (!SyntaxFacts.IsTokenSymbol(sliced, position, TemplateSyntax.ContentSeparator))
+                    if (SyntaxFacts.IsTokenSymbol(sliced, position, TemplateSyntax.ContentSeparator))
                     {
-                        increment = sliced[position..].CommonPrefixLength(TemplateSyntax.ContentSeparator);
+                        position += TemplateSyntax.ContentSeparator.Length;
 
-                        if (enableDiagnostics
-                            && position + increment < sliced.Length && char.IsWhiteSpace(sliced[position + increment]))
-                        {   // Example (separator = "::"): "{identifier:   " — WhiteSpace
-                            Report(TemplateDiagnosticFactory.Separator.Incomplete(tokenStart, position, increment));
-                        }
-                        else if (enableDiagnostics && position + increment == sliced.Length)
-                        {   // Example (separator = "::"): "{identifier:" — EOF
-                            Report(TemplateDiagnosticFactory.Separator.Incomplete(tokenStart, position, increment));
-                        }
-                        else
-                        {   // Example (separator = "::"): "{identifier:[ " — Invalid Char
-                            isValid = false;
-
-                            if (enableDiagnostics)
-                            {
-                                Report(TemplateDiagnosticFactory.Separator.Invalid(tokenStart, position, increment));
-                            }
-                        }
+                        state = TemplateState.AfterSeparator;
+                        expectedValueSectionStart = position;
+                        continue;
                     }
+
+                    int increment = sliced[position..].CommonPrefixLength(TemplateSyntax.ContentSeparator);
                     position += increment;
 
-                    state = TemplateState.AfterSeparator;
-                    expectedValueStart = position;
-                    continue;
+                    if (position < sliced.Length && char.IsWhiteSpace(sliced[position]))
+                    {   // Example (separator = "::"): "{identifier:   " — WhiteSpace\
+                        if (enableDiagnostics)
+                        {
+                            Report(TemplateDiagnosticFactory.Separator.Incomplete(
+                                tokenStart,
+                                relativePosition: position - increment,
+                                errorLength: increment
+                            ));
+                        }
+
+                        state = TemplateState.AfterSeparator;
+                        expectedValueSectionStart = position;
+                        continue;
+                    }
+                    else if (position == sliced.Length)
+                    {   // Example (separator = "::"): "{identifier:" — EOF
+                        isValid = false;
+
+                        if (enableDiagnostics)
+                        {
+                            Report(TemplateDiagnosticFactory.Separator.UnexpectedEOF(tokenStart, position));
+                        }
+
+                        isParsing = false;
+                        continue;
+                    }
+                    else
+                    {   // Example (separator = "::"): "{identifier:[ " — Invalid Char
+                        isValid = false;
+
+                        if (enableDiagnostics)
+                        {
+                            Report(TemplateDiagnosticFactory.Separator.Invalid(
+                                tokenStart,
+                                relativePosition: position - increment,
+                                errorLength: increment
+                            ));
+                        }
+
+                        state = TemplateState.AfterSeparator;
+                        expectedValueSectionStart = position;
+                        continue;
+                    }
                 }
                 
                 // Value Kind
                 case TemplateState.AfterSeparator:
-                    if (!isEscaped)
+                    if (!isEscaped && !char.IsWhiteSpace(c))
                     {
-                        kind = TemplateFacts.GetValueKind(c);
+                        valueKind = TemplateFacts.GetValueKind(c);
                     }
 
-                    if (kind != TemplateValueKind.None)
+                    if (TemplateFacts.IsValidValueKind(valueKind))
                     {
                         state = TemplateState.AfterValueKind;
-                        expectedValueStart = position;
+                        expectedValueSectionStart = position + 1;
                     }
                     else if (!isEscaped && c == TemplateSyntax.ValueOpen.FirstChar)
                     {
-                        kind = TemplateSyntax.DefaultValueKind;
+                        valueKind = TemplateSyntax.DefaultValueKind;
 
                         state = TemplateState.ValueOpen;
                         goto case TemplateState.ValueOpen;
@@ -476,13 +517,14 @@ public sealed class TemplateLexer(TemplateLexerOptions? options = null) : Delimi
                     else if (!isEscaped && IsTokenEnd(sliced, position))
                     {
                         isValid = false;
+                        valueKind = TemplateValueKind.None;
 
                         if (enableDiagnostics)
                         {
                             Report(TemplateDiagnosticFactory.Value.Missing(
                                 tokenStart,
-                                expectedValueStart,
-                                errorLength: position - expectedValueStart
+                                expectedValueSectionStart,
+                                errorLength: position - expectedValueSectionStart
                             ));
                         }
 
@@ -492,13 +534,14 @@ public sealed class TemplateLexer(TemplateLexerOptions? options = null) : Delimi
                     else if (!isEscaped && IsTokenStart(sliced, position))
                     {
                         isValid = false;
+                        valueKind = TemplateValueKind.None;
 
                         if (enableDiagnostics)
                         {
                             Report(TemplateDiagnosticFactory.Value.Missing(
                                 tokenStart,
-                                expectedValueStart,
-                                errorLength: position - expectedValueStart
+                                expectedValueSectionStart,
+                                errorLength: position - expectedValueSectionStart
                             ));
                         }
 
@@ -514,7 +557,7 @@ public sealed class TemplateLexer(TemplateLexerOptions? options = null) : Delimi
                         }
 
                         state = TemplateState.AfterValueKind;
-                        expectedValueStart = position;
+                        expectedValueSectionStart = position + 1;
                     }
                     break;
                 case TemplateState.AfterValueKind:
@@ -527,6 +570,10 @@ public sealed class TemplateLexer(TemplateLexerOptions? options = null) : Delimi
                     }
                     else if (char.IsWhiteSpace(c))
                     {
+                        if (invalidCharsCount > 0)
+                        {
+                            expectedValueSectionStart = position;
+                        }
                         FlushInvalidChars(TemplateDiagnosticFactory.ValueKind.UnexpectedContent);
                     }
                     else if (!isEscaped && IsTokenEnd(sliced, position))
@@ -538,8 +585,8 @@ public sealed class TemplateLexer(TemplateLexerOptions? options = null) : Delimi
                         {
                             Report(TemplateDiagnosticFactory.Value.Missing(
                                 tokenStart,
-                                expectedValueStart,
-                                errorLength: position - expectedValueStart
+                                expectedValueSectionStart,
+                                errorLength: position - expectedValueSectionStart
                             ));
                         }
 
@@ -555,8 +602,8 @@ public sealed class TemplateLexer(TemplateLexerOptions? options = null) : Delimi
                         {
                             Report(TemplateDiagnosticFactory.Value.Missing(
                                 tokenStart,
-                                expectedValueStart,
-                                errorLength: position - expectedValueStart
+                                expectedValueSectionStart,
+                                errorLength: position - expectedValueSectionStart
                             ));
                         }
 
@@ -570,37 +617,64 @@ public sealed class TemplateLexer(TemplateLexerOptions? options = null) : Delimi
                 
                 // Value
                 case TemplateState.ValueOpen: // Symbol
-                {    
-                    int increment = TemplateSyntax.ValueOpen.Length;
-
-                    if (!SyntaxFacts.IsTokenSymbol(sliced, position, TemplateSyntax.ValueOpen))
+                {
+                    if (SyntaxFacts.IsTokenSymbol(sliced, position, TemplateSyntax.ValueOpen))
                     {
-                        increment = sliced[position..].CommonPrefixLength(TemplateSyntax.ValueOpen);
+                        position += TemplateSyntax.ValueOpen.Length;
 
-                        if (enableDiagnostics 
-                            && position + increment < sliced.Length && char.IsWhiteSpace(sliced[position + increment]))
-                        {   // Example (VO = "[["): "{identifier::[  " — WhiteSpace
-                            Report(TemplateDiagnosticFactory.Value.IncompleteOpen(tokenStart, position, increment));
-                        }
-                        else if (enableDiagnostics && position + increment == sliced.Length)
-                        {   // Example (VO = "[["): "{identifier::[" — EOF
-                            Report(TemplateDiagnosticFactory.Value.IncompleteOpen(tokenStart, position, increment));
-                        }
-                        else
-                        {   // Example (VO = "[["): "{identifier::[< " — Invalid Char
-                            isValid = false;
+                        valueStart = position;
 
-                            if (enableDiagnostics)
-                            {
-                                Report(TemplateDiagnosticFactory.Value.InvalidOpen(tokenStart, position, increment));
-                            } 
-                        }
+                        state = TemplateState.Value;
+                        continue;
                     }
+
+                    int increment = sliced[position..].CommonPrefixLength(TemplateSyntax.ValueOpen);
                     position += increment;
+
                     valueStart = position;
 
-                    state = TemplateState.Value;
-                    continue;
+                    if (position < sliced.Length && char.IsWhiteSpace(sliced[position]))
+                    {   // Example (VO = "[["): "{identifier::[  " — WhiteSpace
+                        if (enableDiagnostics)
+                        {
+                            Report(TemplateDiagnosticFactory.Value.OpenIncomplete(
+                                tokenStart,
+                                relativePosition: position - increment,
+                                errorLength: increment
+                            ));
+                        }
+
+                        state = TemplateState.Value;
+                        continue;
+                    }
+                    else if (position == sliced.Length)
+                    {   // Example (VO = "[["): "{identifier::[" — EOF
+                        isValid = false;
+
+                        if (enableDiagnostics)
+                        {
+                            Report(TemplateDiagnosticFactory.Value.OpenUnexpectedEOF(tokenStart, position));
+                        }
+
+                        isParsing = false;
+                        continue;
+                    }
+                    else
+                    {   // Example (VO = "[["): "{identifier::[< " — Invalid Char
+                        isValid = false;
+
+                        if (enableDiagnostics)
+                        {
+                            Report(TemplateDiagnosticFactory.Value.OpenInvalid(
+                                tokenStart,
+                                relativePosition: position - increment,
+                                errorLength: increment
+                            ));
+                        }
+
+                        state = TemplateState.Value;
+                        continue;
+                    }
                 }
                 case TemplateState.Value:
                     if (!isEscaped && c == TemplateSyntax.ValueClose.FirstChar)
@@ -636,32 +710,52 @@ public sealed class TemplateLexer(TemplateLexerOptions? options = null) : Delimi
                     break;
                 case TemplateState.ValueClose: // Symbol
                 {
-                    int increment = TemplateSyntax.ValueClose.Length;
-
-                    if (!SyntaxFacts.IsTokenSymbol(sliced, position, TemplateSyntax.ValueClose))
+                    if (SyntaxFacts.IsTokenSymbol(sliced, position, TemplateSyntax.ValueClose))
                     {
-                        increment = sliced[position..].CommonPrefixLength(TemplateSyntax.ValueClose);
+                        position += TemplateSyntax.ValueClose.Length;
 
-                        if (enableDiagnostics
-                            && position + increment < sliced.Length && char.IsWhiteSpace(sliced[position + increment]))
-                        {   // Example (VC = "]]"): "{identifier::[[value]  " — WhiteSpace
-                            Report(TemplateDiagnosticFactory.Value.IncompleteClose(tokenStart, position, increment));
-                        }
-                        else if (enableDiagnostics && position + increment == sliced.Length)
-                        {   // Example (VC = "]]"): "{identifier::[[value]" — EOF
-                            Report(TemplateDiagnosticFactory.Value.IncompleteClose(tokenStart, position, increment));
-                        }
-                        else
-                        {   // Example (VC = "]]"): "{identifier::[[value]> " — Invalid Char
-                            isValid = false;
+                        state = TemplateState.AfterValue;
+                        continue;
+                    }
 
-                            if (enableDiagnostics)
-                            {
-                                Report(TemplateDiagnosticFactory.Value.InvalidClose(tokenStart, position, increment));
-                            }
+                    int increment = sliced[position..].CommonPrefixLength(TemplateSyntax.ValueClose);
+                    position += increment;
+
+                    if (position < sliced.Length && char.IsWhiteSpace(sliced[position]))
+                    {   // Example (VC = "]]"): "{identifier::[[value]  " — WhiteSpace
+                        if (enableDiagnostics)
+                        {
+                            Report(TemplateDiagnosticFactory.Value.CloseIncomplete(
+                                tokenStart,
+                                relativePosition: position - increment,
+                                errorLength: increment
+                            ));
                         }
                     }
-                    position += increment;
+                    else if (position == sliced.Length)
+                    {   // Example (VC = "]]"): "{identifier::[[value]" — EOF
+                        if (enableDiagnostics)
+                        {
+                            Report(TemplateDiagnosticFactory.Value.CloseIncomplete(
+                                tokenStart,
+                                relativePosition: position - increment,
+                                errorLength: increment
+                            ));
+                        }
+                    }
+                    else
+                    {   // Example (VC = "]]"): "{identifier::[[value]> " — Invalid Char
+                        isValid = false;
+
+                        if (enableDiagnostics)
+                        {
+                            Report(TemplateDiagnosticFactory.Value.CloseInvalid(
+                                tokenStart,
+                                relativePosition: position - increment,
+                                errorLength: increment
+                            ));
+                        }
+                    }
 
                     state = TemplateState.AfterValue;
                     continue;
@@ -703,137 +797,126 @@ public sealed class TemplateLexer(TemplateLexerOptions? options = null) : Delimi
         // ============
         // Commit Token
         // ============
+
+        // The severity of the diagnostics is dynamic:
+        // - If the token remains structurally recoverable, diagnostics are reported as warnings
+        // - If the token becomes structurally invalid, diagnostics are reported as errors
+        //
+        // IMPORTANT:
+        // This is done to ensure a cascading severity level of structural diagnostic messages,
+        // starting from the first point where the token's structural integrity was violated.
+        //
+        // Backtracking is deliberately avoided to ensure deterministic behavior.
         if (state == TemplateState.End)
         {
             position += TokenClose.Length;
             isValid = isValid && IsRecoverable();
-
-            // TokenClose is added after a successful parse completion.
-            // This can still cause MaxTokenLength overflow even for valid tokens,
-            // so overflow diagnostics must be evaluated in this branch as well.
-            FlushOverflowChars(
-                TemplateDiagnosticFactory.Token.TooLong,
-                position,
-                isCritical: !isValid,
-                _options.MaxTokenLength
-            );
         }
-        else if (!isEscaped && IsTokenStart(sliced, position))
-        {   // interrupt: next token starts, current token is cut
+        else if (!isEscaped && IsTokenStart(sliced, position)) // interrupt: next token starts, current token is cut
+        {   // In this case:
+            // - Exceeding `maxTokenLength` is not possible
+            // - The current state has been completed in FSM
+
             if (enableDiagnostics)
             {
                 Report(TemplateDiagnosticFactory.Token.Unclosed(tokenStart, position, isCritical: !isValid));
             }
         }
-        else
+        else if (position >= sliced.Length) // EOF
         {
-            // The severity of the diagnostics is dynamic:
-            // - If the token remains structurally recoverable, diagnostics are reported as warnings
-            // - If the token becomes structurally invalid, diagnostics are reported as errors
-            //
-            // IMPORTANT:
-            // This is done to ensure a cascading severity level of structural diagnostic messages,
-            // starting from the first point where the token's structural integrity was violated.
-            //
-            // Backtracking is deliberately avoided to ensure deterministic behavior.
-
-            if (position >= sliced.Length) // EOF
+            // State Finalization
+            switch (state)
             {
-                // State Finalization
-                switch (state)
-                {
-                    // Identifier
-                    case TemplateState.Start:
-                        if (enableDiagnostics)
-                        {
-                            Report(TemplateDiagnosticFactory.Token.Empty(
-                                tokenStart,
-                                relativePosition: TokenOpen.Length,
-                                errorLength: position - TokenOpen.Length
-                            ));
-                        }
-                        break;
-                    case TemplateState.Identifier:
-                        CommitIdentifier();
-                        break;
-                    case TemplateState.AfterIdentifier:
-                        FlushInvalidChars(TemplateDiagnosticFactory.Identifier.UnexpectedContent);
-                        break;
+                // Identifier
+                case TemplateState.Start:
+                    if (enableDiagnostics)
+                    {
+                        Report(TemplateDiagnosticFactory.Token.Empty(
+                            tokenStart,
+                            relativePosition: TokenOpen.Length,
+                            errorLength: position - TokenOpen.Length
+                        ));
+                    }
+                    break;
+                case TemplateState.Identifier:
+                    CommitIdentifier();
+                    break;
+                case TemplateState.AfterIdentifier:
+                    FlushInvalidChars(TemplateDiagnosticFactory.Identifier.UnexpectedContent);
+                    break;
 
-                    // Value Kind
-                    case TemplateState.AfterSeparator:
-                        if (enableDiagnostics)
-                        {
-                            Report(TemplateDiagnosticFactory.Value.Missing(
-                                tokenStart,
-                                expectedValueStart,
-                                errorLength: position - expectedValueStart
-                            ));
-                        }
-                        break;
-                    case TemplateState.AfterValueKind:
-                        FlushInvalidChars(TemplateDiagnosticFactory.ValueKind.UnexpectedContent);
+                // Value Kind
+                case TemplateState.AfterSeparator:
+                    if (enableDiagnostics)
+                    {
+                        Report(TemplateDiagnosticFactory.Value.Missing(
+                            tokenStart,
+                            expectedValueSectionStart,
+                            errorLength: position - expectedValueSectionStart
+                        ));
+                    }
+                    break;
+                case TemplateState.AfterValueKind:
+                    FlushInvalidChars(TemplateDiagnosticFactory.ValueKind.UnexpectedContent);
 
-                        if (enableDiagnostics)
-                        {
-                            Report(TemplateDiagnosticFactory.Value.Missing(
-                                tokenStart,
-                                expectedValueStart,
-                                errorLength: position - expectedValueStart
-                            ));
-                        }
-                        break;
+                    if (enableDiagnostics)
+                    {
+                        Report(TemplateDiagnosticFactory.Value.Missing(
+                            tokenStart,
+                            expectedValueSectionStart,
+                            errorLength: position - expectedValueSectionStart
+                        ));
+                    }
+                    break;
 
-                    // Value
-                    case TemplateState.Value:
-                        CommitValue();
-                        isValid = isValid && IsRecoverable();
+                // Value
+                case TemplateState.Value:
+                    CommitValue();
+                    isValid = isValid && IsRecoverable();
 
-                        if (enableDiagnostics)
-                        {
-                            Report(TemplateDiagnosticFactory.Value.Unclosed(tokenStart, position, isCritical: !isValid));
-                        }
-                        break;
-                    case TemplateState.AfterValue:
-                        FlushInvalidChars(TemplateDiagnosticFactory.Value.UnexpectedContent);
-                        break;
-                }
-
-                isValid = isValid && IsRecoverable();
-
-                if (enableDiagnostics)
-                {
-                    Report(TemplateDiagnosticFactory.Token.UnexpectedEOF(tokenStart, sliced.Length, isCritical: !isValid));
-                }
-            }
-            else
-            {
-                isValid = false;
-
-                if (enableDiagnostics)
-                {
-                    Report(TemplateDiagnosticFactory.Token.Unclosed(
-                        tokenStart,
-                        relativePosition: Math.Min(position, sliced.Length),
-                        isCritical: !isValid
-                    ));
-                }
+                    if (enableDiagnostics)
+                    {
+                        Report(TemplateDiagnosticFactory.Value.Unclosed(tokenStart, position, isCritical: !isValid));
+                    }
+                    break;
+                case TemplateState.AfterValue:
+                    FlushInvalidChars(TemplateDiagnosticFactory.Value.UnexpectedContent);
+                    break;
             }
 
-            FlushOverflowChars(
-                TemplateDiagnosticFactory.Token.TooLong,
-                position,
-                isCritical: !isValid,
-                _options.MaxTokenLength
-            );
+            isValid = isValid && IsRecoverable();
+
+            if (enableDiagnostics && !IsSymbol())
+            {
+                Report(TemplateDiagnosticFactory.Token.UnexpectedEOF(tokenStart, sliced.Length, isCritical: !isValid));
+            }
         }
+        else // The token has exceeded the MaxTokenLength.
+        {
+            isValid = false;
+
+            if (enableDiagnostics)
+            {
+                Report(TemplateDiagnosticFactory.Token.Unclosed(
+                    tokenStart,
+                    position,
+                    isCritical: true
+                ));
+            }
+        }
+        FlushOverflowChars(
+            TemplateDiagnosticFactory.Token.TooLong,
+            position,
+            isCritical: !isValid,
+            _options.MaxTokenLength
+        );
 
         return (
             new(
                 source.Slice(tokenStart, position),
                 identifierStart,
                 identifierLength,
-                kind,
+                valueKind,
                 valueStart,
                 valueLength,
                 isValid,

@@ -64,6 +64,10 @@ internal static partial class DiagnosticRegistry
             DiagnosticCode.TemplateInvalidSeparator,
             $"Separator is incomplete. Expected '{TemplateSyntax.ContentSeparator}'."
         );
+        map[DiagnosticId.TemplateSeparatorUnexpectedEOF] = Create(
+            DiagnosticCode.TemplateTokenUnexpectedEOF,
+            "Unexpected end of file while parsing separator."
+        );
 
         // ValueKind
         map[DiagnosticId.TemplateValueKindInvalid] = Create(
@@ -80,19 +84,23 @@ internal static partial class DiagnosticRegistry
             DiagnosticCode.TemplateMissingValue,
             "Missing value section after separator and/or value kind."
         );
-        map[DiagnosticId.TemplateValueInvalidOpen] = Create(
+        map[DiagnosticId.TemplateValueOpenInvalid] = Create(
             DiagnosticCode.TemplateInvalidValueOpen,
             $"Invalid value open symbol. Expected '{TemplateSyntax.ValueOpen}'."
         );
-        map[DiagnosticId.TemplateValueIncompleteOpen] = Create(
+        map[DiagnosticId.TemplateValueOpenIncomplete] = Create(
             DiagnosticCode.TemplateInvalidValueOpen,
             $"Value open symbol is incomplete. Expected '{TemplateSyntax.ValueOpen}'."
         );
-        map[DiagnosticId.TemplateValueInvalidClose] = Create(
+        map[DiagnosticId.TemplateValueOpenUnexpectedEOF] = Create(
+            DiagnosticCode.TemplateTokenUnexpectedEOF,
+            "Unexpected end of file while parsing value open."
+        );
+        map[DiagnosticId.TemplateValueCloseInvalid] = Create(
             DiagnosticCode.TemplateInvalidValueClose,
             $"Invalid value close symbol. Expected '{TemplateSyntax.ValueClose}'."
         );
-        map[DiagnosticId.TemplateValueIncompleteClose] = Create(
+        map[DiagnosticId.TemplateValueCloseIncomplete] = Create(
             DiagnosticCode.TemplateInvalidValueClose,
             $"Value close symbol is incomplete. Expected '{TemplateSyntax.ValueClose}'."
         );

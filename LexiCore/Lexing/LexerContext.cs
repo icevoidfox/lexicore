@@ -7,34 +7,28 @@
 /// This is a <see langword="ref struct"/> to ensure it is only ever allocated on the stack,
 /// maintaining zero-allocation performance during the tokenization process.
 /// </remarks>
-public readonly ref struct LexerContext(
-    TokenBufferConfig? bufferConfig = null,
-    bool enableDiagnostics = true
-)
+public readonly ref struct LexerContext
 {
-    /// <summary>
-    /// Gets a default context with standard buffer configuration and diagnostics enabled.
-    /// </summary>
-    public static LexerContext Default => new();
+    private readonly TokenBufferConfig? _bufferConfig;
+    private readonly bool _diagnosticsDisabled;
+
+    public LexerContext(
+        TokenBufferConfig? bufferConfig = null,
+        bool enableDiagnostics = true
+    ) : this()
+    {
+        _bufferConfig = bufferConfig;
+        _diagnosticsDisabled = !enableDiagnostics;
+    }
 
     /// <summary>
     /// Configuration for estimating the initial capacity of a list to minimize its size change during token collection.
     /// </summary>
-    public readonly TokenBufferConfig BufferConfig = bufferConfig ?? TokenBufferConfig.Default;
+    public readonly TokenBufferConfig BufferConfig => _bufferConfig ?? TokenBufferConfig.Default;
 
     /// <summary>
     /// Indicates whether diagnostics should be collected during lexing.
     /// If <see langword="false"/>, lexers should skip diagnostic production for better performance.
     /// </summary>
-    public readonly bool EnableDiagnostics = enableDiagnostics;
-
-    /// <summary>
-    /// Gets a value indicating whether the context is uninitialized (default).
-    /// </summary>
-    /// <value>
-    /// <see langword="true"/> if the structure was created using <see langword="default"/>
-    /// without calling a constructor; otherwise, <see langword="false"/>.
-    /// </value>
-    [System.Diagnostics.CodeAnalysis.MemberNotNullWhen(false, nameof(BufferConfig))]
-    public bool IsEmpty => BufferConfig is null;
+    public readonly bool EnableDiagnostics => !_diagnosticsDisabled;
 }

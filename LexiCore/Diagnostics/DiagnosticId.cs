@@ -50,6 +50,7 @@ public enum DiagnosticId : ushort
     TemplateSeparatorMissing = 2301,
     TemplateSeparatorInvalid = 2302,
     TemplateSeparatorIncomplete = 2303,
+    TemplateSeparatorUnexpectedEOF = 2304,
 
     // ValueKind (2400-2499)
     TemplateValueKind = 2400, // Reserve
@@ -61,12 +62,13 @@ public enum DiagnosticId : ushort
     TemplateValue = 2500, // Reserve
 
     TemplateValueMissing = 2501,
-    TemplateValueInvalidOpen = 2502,
-    TemplateValueIncompleteOpen = 2503,
-    TemplateValueInvalidClose = 2504,
-    TemplateValueIncompleteClose = 2505,
-    TemplateValueTooLong = 2506,
-    TemplateValueUnclosed = 2507,
-    TemplateValueUnexpectedContent = 2508,
+    TemplateValueOpenInvalid = 2502,
+    TemplateValueOpenIncomplete = 2503,
+    TemplateValueOpenUnexpectedEOF = 2504,
+    TemplateValueCloseInvalid = 2505,
+    TemplateValueCloseIncomplete = 2506,
+    TemplateValueTooLong = 2507,
+    TemplateValueUnclosed = 2508,
+    TemplateValueUnexpectedContent = 2509,
     #endregion Template
 }

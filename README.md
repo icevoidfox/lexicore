@@ -50,7 +50,7 @@ while remaining readable for non-programmers and extensible for domain-specific 
 #### Template & partial style closing
 Closes only `bold`, while `italic` remains active.
 ```cs
-string text = "[<text-style=italic,bold>]Meow, {User}[/text-style=bold]! [<color=green>]Welcome back!";
+string text = "[<text-style=italic,bold>]Meow, {User}[</text-style=bold>]! [<color=green>]Welcome back!";
 
 var engine = new LexiCoreEngine();
 
@@ -147,6 +147,7 @@ engine.Render(text, HtmlRenderer);
 - Zero-allocation context for runtime configuration (diagnostics, buffering)
 - Sub-lexers:
     - Configurable template lexer
+    - Escape character support for literal token content
 - Diagnostic system (public contract):
     - Diagnostic IDs (unstable)
     - Diagnostic codes (stable, external-facing)

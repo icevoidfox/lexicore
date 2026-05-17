@@ -11,6 +11,7 @@ namespace LexiCore.Tokens.Syntax;
 public enum TemplateValueKind : byte
 {
     None,
+    Invalid,
     Value,
     Format,
 }

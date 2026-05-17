@@ -9,11 +9,18 @@ internal static class TemplateFacts
     {
         return isFirstChar ? TemplateSyntax.IdentifierStart.Contains(c) : TemplateSyntax.IdentifierBody.Contains(c);
     }
-    
+
+    public static bool IsValidValueKind(TemplateValueKind valueKind) => valueKind switch
+    {
+        TemplateValueKind.None => false,
+        TemplateValueKind.Invalid => false,
+        _ => true
+    };
+
     public static TemplateValueKind GetValueKind(char c) => c switch
     {
         'v' => TemplateValueKind.Value,
         'f' => TemplateValueKind.Format,
-        _ => TemplateValueKind.None
+        _ => TemplateValueKind.Invalid
     };
 }

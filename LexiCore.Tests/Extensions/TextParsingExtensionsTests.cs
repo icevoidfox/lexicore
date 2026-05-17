@@ -2,9 +2,9 @@ using System;
 
 using LexiCore.Extensions;
 
-namespace LexiCore.Tests.ExtensionsTests;
+namespace LexiCore.Tests.Extensions;
 
-public class StringParsingExtensionsTests
+public class TextParsingExtensionsTests
 {
     #region ExtractDelimitedContent - char delimiters
 
